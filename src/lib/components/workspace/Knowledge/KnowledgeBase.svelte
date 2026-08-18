@@ -125,6 +125,7 @@
 	// HTML preview state for KB file viewer
 	let kbHtmlRawContent: string | null = null;
 	let kbHtmlViewMode: 'preview' | 'code' = 'preview';
+	let kbHtmlPreviewLoaded = false;
 
 	let inputFiles = null;
 
@@ -272,6 +273,7 @@
 		loadingFileContent = false;
 		kbHtmlRawContent = null;
 		kbHtmlViewMode = 'preview';
+		kbHtmlPreviewLoaded = false;
 
 		if (!file?.id || file?.data?.content !== undefined) {
 			// Even if content is already loaded, check for HTML preview
@@ -1717,7 +1719,10 @@
 																? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
 																: 'text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-850'}"
 															type="button"
-															on:click={() => { kbHtmlViewMode = 'preview'; }}
+															on:click={() => {
+																kbHtmlPreviewLoaded = false;
+																kbHtmlViewMode = 'preview';
+															}}
 															aria-label={$i18n.t('Preview')}
 														>
 															<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4" aria-hidden="true">
@@ -1747,14 +1752,23 @@
 												</div>
 
 												{#if kbHtmlViewMode === 'preview'}
-													<iframe
-														srcdoc={injectCsp(kbHtmlRawContent, $config?.ui?.iframe_csp ?? '')}
-														sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
-															? ' allow-forms'
-															: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
-														class="w-full h-full flex-1 border-0 bg-white"
-														title="HTML Preview"
-													/>
+													<div
+														class="w-full h-full flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950"
+													>
+														<iframe
+															srcdoc={injectCsp(kbHtmlRawContent, $config?.ui?.iframe_csp ?? '')}
+															sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
+																? ' allow-forms'
+																: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
+															class="w-full h-full border-0 bg-transparent transition-opacity duration-150 {kbHtmlPreviewLoaded
+																? 'opacity-100'
+																: 'opacity-0'}"
+															on:load={() => {
+																kbHtmlPreviewLoaded = true;
+															}}
+															title="HTML Preview"
+														/>
+													</div>
 												{:else}
 													<div class="w-full h-full overflow-auto text-xs">
 														<CodeBlock

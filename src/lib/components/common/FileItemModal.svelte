@@ -63,6 +63,7 @@
 	// HTML preview state
 	let htmlRawContent: string | null = null;
 	let htmlViewMode: 'preview' | 'code' = 'preview';
+	let htmlPreviewLoaded = false;
 
 	let panzoomRef: PanzoomContainer;
 	const resetImageView = () => {
@@ -228,6 +229,7 @@
 		expandedContent = false;
 		htmlRawContent = null;
 		htmlViewMode = 'preview';
+		htmlPreviewLoaded = false;
 		if (item?.type === 'collection') {
 			loading = true;
 
@@ -430,7 +432,10 @@
 									? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
 									: 'text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-850'}"
 								type="button"
-								on:click={() => { htmlViewMode = 'preview'; }}
+								on:click={() => {
+									htmlPreviewLoaded = false;
+									htmlViewMode = 'preview';
+								}}
 								aria-label={$i18n.t('Preview')}
 							>
 								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4" aria-hidden="true">
@@ -511,14 +516,23 @@
 				{:else if isHtml && htmlRawContent !== null}
 					<!-- HTML file: rich preview or source code -->
 					{#if htmlViewMode === 'preview'}
-						<iframe
-							srcdoc={injectCsp(htmlRawContent, $config?.ui?.iframe_csp ?? '')}
-							sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
-								? ' allow-forms'
-								: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
-							class="w-full h-[70vh] border-0 rounded-lg bg-white"
-							title="HTML Preview"
-						/>
+						<div
+							class="w-full h-[70vh] overflow-hidden rounded-lg bg-gray-50 dark:bg-gray-950"
+						>
+							<iframe
+								srcdoc={injectCsp(htmlRawContent, $config?.ui?.iframe_csp ?? '')}
+								sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
+									? ' allow-forms'
+									: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
+								class="w-full h-full border-0 bg-transparent transition-opacity duration-150 {htmlPreviewLoaded
+									? 'opacity-100'
+									: 'opacity-0'}"
+								on:load={() => {
+									htmlPreviewLoaded = true;
+								}}
+								title="HTML Preview"
+							/>
+						</div>
 					{:else}
 						<div class="max-h-[70vh] overflow-scroll scrollbar-hidden text-sm relative">
 							<CodeBlock
