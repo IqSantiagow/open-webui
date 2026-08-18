@@ -160,11 +160,18 @@
 
 	$: isExternalKnowledge = knowledge?.meta?.source === 'external';
 
-	$: isSelectedFileHtml = selectedFile &&
-		(selectedFile?.meta?.content_type === 'text/html' ||
-			(selectedFile?.meta?.name &&
-				(selectedFile.meta.name.toLowerCase().endsWith('.html') ||
-					selectedFile.meta.name.toLowerCase().endsWith('.htm'))));
+	const isHtmlFile = (file) => {
+		const name = file?.name ?? file?.meta?.name ?? '';
+		const contentType = file?.meta?.content_type ?? file?.content_type ?? '';
+
+		return (
+			contentType === 'text/html' ||
+			name.toLowerCase().endsWith('.html') ||
+			name.toLowerCase().endsWith('.htm')
+		);
+	};
+
+	$: isSelectedFileHtml = Boolean(selectedFile && isHtmlFile(selectedFile));
 
 	const reset = () => {
 		currentPage = 1;
@@ -303,14 +310,7 @@
 	};
 
 	const loadKbHtmlContent = async (file) => {
-		const name = file?.meta?.name ?? file?.name ?? '';
-		const contentType = file?.meta?.content_type ?? '';
-		const fileIsHtml =
-			contentType === 'text/html' ||
-			name.toLowerCase().endsWith('.html') ||
-			name.toLowerCase().endsWith('.htm');
-
-		if (!fileIsHtml || !file?.id) return;
+		if (!isHtmlFile(file) || !file?.id) return;
 
 		try {
 			const arrayBuffer = await getFileContentById(file.id);
@@ -943,7 +943,12 @@
 	let isSaving = false;
 
 	const updateFileContentHandler = async () => {
-		if (isSaving || loadingFileContent || !selectedFile?.id) {
+		if (
+			isSaving ||
+			loadingFileContent ||
+			!selectedFile?.id ||
+			(isSelectedFileHtml && kbHtmlRawContent === null)
+		) {
 			return;
 		}
 
@@ -953,7 +958,7 @@
 			const res = await updateFileDataContentById(
 				localStorage.token,
 				selectedFile.id,
-				selectedFileContent
+				isSelectedFileHtml ? (kbHtmlRawContent ?? '') : selectedFileContent
 			).catch((e) => {
 				toast.error(`${e}`);
 				return null;
@@ -1693,7 +1698,9 @@
 												<div>
 													<button
 														class="flex self-center w-fit text-xs py-1 px-2.5 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-														disabled={isSaving || loadingFileContent}
+														disabled={isSaving ||
+											loadingFileContent ||
+											(isSelectedFileHtml && kbHtmlRawContent === null)}
 														on:click={() => {
 															updateFileContentHandler();
 														}}
@@ -1770,16 +1777,24 @@
 														/>
 													</div>
 												{:else}
-													<div class="w-full h-full overflow-auto text-xs">
-														<CodeBlock
-															code={kbHtmlRawContent}
-															lang="html"
-															token={null}
-															edit={false}
-															run={false}
-															save={false}
-														/>
-													</div>
+													{#if knowledge?.write_access}
+														<textarea
+															class="w-full h-full text-xs font-mono outline-none resize-none px-3 py-2"
+															bind:value={kbHtmlRawContent}
+															aria-label={$i18n.t('File content')}
+														></textarea>
+													{:else}
+														<div class="w-full h-full overflow-auto text-xs">
+															<CodeBlock
+																code={kbHtmlRawContent}
+																lang="html"
+																token={null}
+																edit={false}
+																run={false}
+																save={false}
+															/>
+														</div>
+													{/if}
 												{/if}
 											{:else}
 												<textarea
