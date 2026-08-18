@@ -26,8 +26,11 @@
 		uploadFile,
 		deleteFileById,
 		getFileById,
+		getFileContentById,
 		renameFileById
 	} from '$lib/apis/files';
+	import { injectCsp } from '$lib/utils/csp';
+	import CodeBlock from '$lib/components/chat/Messages/CodeBlock.svelte';
 	import {
 		addFileToKnowledgeById,
 		getKnowledgeById,
@@ -119,6 +122,10 @@
 	let selectedFileContent = '';
 	let loadingFileContent = false;
 
+	// HTML preview state for KB file viewer
+	let kbHtmlRawContent: string | null = null;
+	let kbHtmlViewMode: 'preview' | 'code' = 'preview';
+
 	let inputFiles = null;
 
 	let query = '';
@@ -151,6 +158,12 @@
 	} | null = null;
 
 	$: isExternalKnowledge = knowledge?.meta?.source === 'external';
+
+	$: isSelectedFileHtml = selectedFile &&
+		(selectedFile?.meta?.content_type === 'text/html' ||
+			(selectedFile?.meta?.name &&
+				(selectedFile.meta.name.toLowerCase().endsWith('.html') ||
+					selectedFile.meta.name.toLowerCase().endsWith('.htm'))));
 
 	const reset = () => {
 		currentPage = 1;
@@ -257,8 +270,14 @@
 		selectedFile = file;
 		selectedFileContent = file?.data?.content ?? '';
 		loadingFileContent = false;
+		kbHtmlRawContent = null;
+		kbHtmlViewMode = 'preview';
 
 		if (!file?.id || file?.data?.content !== undefined) {
+			// Even if content is already loaded, check for HTML preview
+			if (file?.id) {
+				await loadKbHtmlContent(file);
+			}
 			return;
 		}
 
@@ -268,6 +287,7 @@
 			if (selectedFileId === file.id) {
 				selectedFile = fileWithContent ?? file;
 				selectedFileContent = fileWithContent?.data?.content ?? '';
+				await loadKbHtmlContent(fileWithContent ?? file);
 			}
 		} catch (e) {
 			if (selectedFileId === file.id) {
@@ -277,6 +297,27 @@
 			if (selectedFileId === file.id) {
 				loadingFileContent = false;
 			}
+		}
+	};
+
+	const loadKbHtmlContent = async (file) => {
+		const name = file?.meta?.name ?? file?.name ?? '';
+		const contentType = file?.meta?.content_type ?? '';
+		const fileIsHtml =
+			contentType === 'text/html' ||
+			name.toLowerCase().endsWith('.html') ||
+			name.toLowerCase().endsWith('.htm');
+
+		if (!fileIsHtml || !file?.id) return;
+
+		try {
+			const arrayBuffer = await getFileContentById(file.id);
+			if (arrayBuffer && selectedFileId === file.id) {
+				kbHtmlRawContent = new TextDecoder().decode(arrayBuffer);
+			}
+		} catch (error) {
+			console.error('Error loading HTML file for KB preview:', error);
+			kbHtmlRawContent = null;
 		}
 	};
 
@@ -1667,13 +1708,74 @@
 										</div>
 
 										{#key selectedFile?.id}
-											<textarea
-												class="w-full h-full text-xs outline-none resize-none px-3 py-2"
-												bind:value={selectedFileContent}
-												disabled={!knowledge?.write_access || loadingFileContent}
-												aria-label={$i18n.t('File content')}
-												placeholder={$i18n.t('Add content here')}
-											></textarea>
+											{#if isSelectedFileHtml && kbHtmlRawContent !== null}
+												<!-- HTML file: toggle bar + iframe preview / code view -->
+												<div class="flex items-center gap-0.5 px-3 py-1.5 border-b border-gray-100 dark:border-gray-800">
+													<Tooltip content={$i18n.t('Preview')}>
+														<button
+															class="p-1.5 rounded-md transition {kbHtmlViewMode === 'preview'
+																? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+																: 'text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-850'}"
+															type="button"
+															on:click={() => { kbHtmlViewMode = 'preview'; }}
+															aria-label={$i18n.t('Preview')}
+														>
+															<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4" aria-hidden="true">
+																<path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+																<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+															</svg>
+														</button>
+													</Tooltip>
+													<Tooltip content={$i18n.t('Source')}>
+														<button
+															class="p-1.5 rounded-md transition {kbHtmlViewMode === 'code'
+																? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+																: 'text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-850'}"
+															type="button"
+															on:click={() => { kbHtmlViewMode = 'code'; }}
+															aria-label={$i18n.t('Source')}
+														>
+															<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4" aria-hidden="true">
+																<path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+															</svg>
+														</button>
+													</Tooltip>
+													<div class="flex-1"></div>
+													<span class="text-xs text-gray-400 dark:text-gray-500">
+														HTML
+													</span>
+												</div>
+
+												{#if kbHtmlViewMode === 'preview'}
+													<iframe
+														srcdoc={injectCsp(kbHtmlRawContent, $config?.ui?.iframe_csp ?? '')}
+														sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
+															? ' allow-forms'
+															: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
+														class="w-full h-full flex-1 border-0 bg-white"
+														title="HTML Preview"
+													/>
+												{:else}
+													<div class="w-full h-full overflow-auto text-xs">
+														<CodeBlock
+															code={kbHtmlRawContent}
+															lang="html"
+															token={null}
+															edit={false}
+															run={false}
+															save={false}
+														/>
+													</div>
+												{/if}
+											{:else}
+												<textarea
+													class="w-full h-full text-xs outline-none resize-none px-3 py-2"
+													bind:value={selectedFileContent}
+													disabled={!knowledge?.write_access || loadingFileContent}
+													aria-label={$i18n.t('File content')}
+													placeholder={$i18n.t('Add content here')}
+												></textarea>
+											{/if}
 										{/key}
 									</div>
 								</div>
