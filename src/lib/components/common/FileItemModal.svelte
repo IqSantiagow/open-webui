@@ -6,9 +6,10 @@
 
 	import { formatFileSize, getLineCount } from '$lib/utils';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
-	import { settings } from '$lib/stores';
+	import { settings, config } from '$lib/stores';
 	import { getKnowledgeById } from '$lib/apis/knowledge';
 	import { getFileById, getFileContentById } from '$lib/apis/files';
+	import { injectCsp } from '$lib/utils/csp';
 
 	import CodeBlock from '$lib/components/chat/Messages/CodeBlock.svelte';
 	import Markdown from '$lib/components/chat/Messages/Markdown.svelte';
@@ -59,9 +60,26 @@
 	let pptxCurrentSlide = 0;
 	let pptxError = '';
 
+	// HTML preview state
+	let htmlRawContent: string | null = null;
+	let htmlViewMode: 'preview' | 'code' = 'preview';
+	let htmlPreviewLoaded = false;
+
 	let panzoomRef: PanzoomContainer;
 	const resetImageView = () => {
 		panzoomRef?.reset();
+	};
+
+	const loadHtmlContent = async () => {
+		try {
+			const arrayBuffer = await getFileContentById(item.id);
+			if (arrayBuffer) {
+				htmlRawContent = new TextDecoder().decode(arrayBuffer);
+			}
+		} catch (error) {
+			console.error('Error loading HTML file:', error);
+			htmlRawContent = null;
+		}
 	};
 
 	$: isPDF =
@@ -72,13 +90,19 @@
 		item?.meta?.content_type === 'text/markdown' ||
 		(item?.name && item?.name.toLowerCase().endsWith('.md'));
 
+	$: isHtml =
+		item?.meta?.content_type === 'text/html' ||
+		(item?.name &&
+			(item.name.toLowerCase().endsWith('.html') ||
+				item.name.toLowerCase().endsWith('.htm')));
+
 	$: isCode =
 		item?.name &&
+		!isHtml &&
 		(item.name.toLowerCase().endsWith('.py') ||
 			item.name.toLowerCase().endsWith('.js') ||
 			item.name.toLowerCase().endsWith('.ts') ||
 			item.name.toLowerCase().endsWith('.java') ||
-			item.name.toLowerCase().endsWith('.html') ||
 			item.name.toLowerCase().endsWith('.css') ||
 			item.name.toLowerCase().endsWith('.json') ||
 			item.name.toLowerCase().endsWith('.cpp') ||
@@ -203,6 +227,9 @@
 	const loadContent = async () => {
 		selectedTab = '';
 		expandedContent = false;
+		htmlRawContent = null;
+		htmlViewMode = 'preview';
+		htmlPreviewLoaded = false;
 		if (item?.type === 'collection') {
 			loading = true;
 
@@ -236,6 +263,9 @@
 			}
 			if (isPptx) {
 				await loadPptxContent();
+			}
+			if (isHtml) {
+				await loadHtmlContent();
 			}
 
 			loading = false;
@@ -391,7 +421,51 @@
 					</div>
 				{/if}
 
-				{#if isAudio || isPDF || isExcel || isCode || isMarkdown || isDocx || isPptx}
+				{#if isHtml && htmlRawContent !== null}
+					<!-- HTML files: icon toggle between Preview (eye) and Code (brackets) -->
+					<div
+						class="flex items-center gap-0.5 mb-2.5 w-full border-b border-gray-50 dark:border-gray-850/30"
+					>
+						<Tooltip content={$i18n.t('Preview')}>
+							<button
+								class="p-1.5 rounded-md transition {htmlViewMode === 'preview'
+									? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+									: 'text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-850'}"
+								type="button"
+								on:click={() => {
+									htmlPreviewLoaded = false;
+									htmlViewMode = 'preview';
+								}}
+								aria-label={$i18n.t('Preview')}
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4" aria-hidden="true">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+									<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+								</svg>
+							</button>
+						</Tooltip>
+						<Tooltip content={$i18n.t('Source')}>
+							<button
+								class="p-1.5 rounded-md transition {htmlViewMode === 'code'
+									? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+									: 'text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-850'}"
+								type="button"
+								on:click={() => { htmlViewMode = 'code'; }}
+								aria-label={$i18n.t('Source')}
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4" aria-hidden="true">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+								</svg>
+							</button>
+						</Tooltip>
+
+						<div class="flex-1"></div>
+
+						<span class="text-xs text-gray-400 dark:text-gray-500 mr-2">
+							{item?.name?.split('.').pop()?.toUpperCase() ?? 'HTML'}
+						</span>
+					</div>
+				{:else if isAudio || isPDF || isExcel || isCode || isMarkdown || isDocx || isPptx}
 					<div
 						class="flex mb-2.5 scrollbar-none overflow-x-auto w-full border-b border-gray-50 dark:border-gray-850/30 text-center text-sm font-normal bg-transparent dark:text-gray-200"
 					>
@@ -439,6 +513,38 @@
 							/>
 						</PanzoomContainer>
 					</div>
+				{:else if isHtml && htmlRawContent !== null}
+					<!-- HTML file: rich preview or source code -->
+					{#if htmlViewMode === 'preview'}
+						<div
+							class="w-full h-[70vh] overflow-hidden rounded-lg bg-gray-50 dark:bg-gray-950"
+						>
+							<iframe
+								srcdoc={injectCsp(htmlRawContent, $config?.ui?.iframe_csp ?? '')}
+								sandbox="allow-scripts allow-downloads{($settings?.iframeSandboxAllowForms ?? false)
+									? ' allow-forms'
+									: ''}{($settings?.iframeSandboxAllowSameOrigin ?? false) ? ' allow-same-origin' : ''}"
+								class="w-full h-full border-0 bg-transparent transition-opacity duration-150 {htmlPreviewLoaded
+									? 'opacity-100'
+									: 'opacity-0'}"
+								on:load={() => {
+									htmlPreviewLoaded = true;
+								}}
+								title="HTML Preview"
+							/>
+						</div>
+					{:else}
+						<div class="max-h-[70vh] overflow-scroll scrollbar-hidden text-sm relative">
+							<CodeBlock
+								code={htmlRawContent}
+								lang="html"
+								token={null}
+								edit={false}
+								run={false}
+								save={false}
+							/>
+						</div>
+					{/if}
 				{:else if selectedTab === ''}
 					{#if item?.file?.data}
 						{@const rawContent = (item?.file?.data?.content ?? '').trim() || 'No content'}
