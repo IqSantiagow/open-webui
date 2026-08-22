@@ -63,6 +63,10 @@
 			label: $i18n.t('Calendar'),
 			description: $i18n.t('List calendars, search, create, update, and delete calendar events')
 		},
+		kanban: {
+			label: $i18n.t('Kanban'),
+			description: $i18n.t('List, create, update, move, and comment on kanban cards')
+		},
 		subagents: {
 			label: $i18n.t('Sub-agents'),
 			description: $i18n.t('Delegate focused work to parallel sub-agents')

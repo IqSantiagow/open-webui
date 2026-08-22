@@ -7,6 +7,15 @@ IMPORTANT: DO NOT IMPORT THIS MODULE DIRECTLY IN OTHER PARTS OF THE CODEBASE.
 """
 
 from open_webui.tools.knowledge_fs import kb_exec  # noqa: F401 — re-exported
+from open_webui.tools.kanban import (  # noqa: F401 — re-exported
+    kanban_card_activity,
+    kanban_comment,
+    kanban_create_card,
+    kanban_list_boards,
+    kanban_list_cards,
+    kanban_move_card,
+    kanban_update_card,
+)
 
 import asyncio
 import json
