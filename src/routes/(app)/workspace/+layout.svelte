@@ -68,13 +68,15 @@
 			canViewTools ? getToolList(localStorage.token).catch(() => null) : null
 		]);
 
-		workspaceCounts.set({
+		// Licznik kanbana ustawia sama tablica, wiec zachowujemy jego biezaca wartosc.
+		workspaceCounts.update((counts) => ({
+			...counts,
 			models: getCount(modelRes),
 			knowledge: getCount(knowledgeRes),
 			prompts: getCount(promptRes),
 			skills: getCount(skillRes),
 			tools: getCount(toolRes)
-		});
+		}));
 	};
 
 	onMount(async () => {
@@ -229,6 +231,21 @@
 								</span>
 							</a>
 						{/if}
+
+						<a
+							draggable="false"
+							aria-current={activeWorkspaceSection === 'kanban' ? 'page' : null}
+							class="min-w-fit px-1 text-sm inline-flex items-center gap-1 {activeWorkspaceSection ===
+							'kanban'
+								? 'text-gray-900 dark:text-gray-100'
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/workspace/kanban"
+						>
+							<span>{$i18n.t('Kanban')}</span>
+							<span class="text-sm opacity-60">
+								{formatCount($workspaceCounts.kanban)}
+							</span>
+						</a>
 					</div>
 
 					<div class="ml-auto flex shrink-0 items-center gap-1">

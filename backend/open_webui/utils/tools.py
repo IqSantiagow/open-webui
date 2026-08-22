@@ -64,6 +64,13 @@ from open_webui.tools.builtin import (
     get_current_timestamp,
     grep_chat_files,
     grep_knowledge_files,
+    kanban_card_activity,
+    kanban_comment,
+    kanban_create_card,
+    kanban_list_boards,
+    kanban_list_cards,
+    kanban_move_card,
+    kanban_update_card,
     kb_exec,
     list_chat_files,
     list_automations,
@@ -748,6 +755,20 @@ async def get_builtin_tools(
     ):
         builtin_functions.extend(
             [create_automation, update_automation, list_automations, toggle_automation, delete_automation]
+        )
+
+    # Kanban tools - read and write the user's kanban board from chat
+    if is_builtin_tool_enabled('kanban'):
+        builtin_functions.extend(
+            [
+                kanban_list_boards,
+                kanban_list_cards,
+                kanban_create_card,
+                kanban_update_card,
+                kanban_move_card,
+                kanban_comment,
+                kanban_card_activity,
+            ]
         )
 
     # Calendar tools - search/create/update/delete events

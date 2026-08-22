@@ -25,6 +25,7 @@ from open_webui.models.folders import (
 from open_webui.models.access_grants import AccessGrants
 from open_webui.models.automations import Automations
 from open_webui.models.groups import Groups
+from open_webui.models.kanban import Kanban
 from open_webui.models.users import Users
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.access_control import (
@@ -695,6 +696,7 @@ async def delete_folder_by_id(
                     await AccessGrants.revoke_all_access('folder', folder_id, db=db)
 
                 await Automations.clear_folder_ids(folder_owner_id, folder_ids, db=db)
+                await Kanban.clear_folder_ids(folder_owner_id, folder_ids, db=db)
 
                 await publish_event(
                     request,
