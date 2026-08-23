@@ -23,6 +23,7 @@
 		TTSWorker,
 		user
 	} from '$lib/stores';
+	import type { PendingQuestionAnswer, PendingQuestionItem } from '$lib/stores';
 	import { synthesizeOpenAISpeech } from '$lib/apis/audio';
 	import { imageGenerations } from '$lib/apis/images';
 	import {
@@ -62,6 +63,7 @@
 	import { flyAndScale } from '$lib/utils/transitions';
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
+	import QuestionPanel from './ResponseMessage/QuestionPanel.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import OutputEditView from './OutputEditView.svelte';
 	import { getOutputText, replaceOutputMessageText, type OutputItem } from './structuredOutput';
@@ -116,6 +118,13 @@
 			usage?: unknown;
 		};
 		annotation?: { type: string; rating: number };
+		questions?: {
+			id?: string;
+			questions?: PendingQuestionItem[];
+			answers?: PendingQuestionAnswer[];
+			cancelled?: boolean;
+			reason?: string;
+		}[];
 	}
 
 	export let chatId = '';
@@ -722,6 +731,16 @@
 											allowSameOrigin={$settings?.iframeSandboxAllowSameOrigin ?? false}
 											allowPopups={true}
 										/>
+									</div>
+								{/each}
+							</div>
+						{/if}
+
+						{#if message?.questions && message.questions.length > 0}
+							<div class="w-full" id={`${message.id}-questions-container`}>
+								{#each message.questions as questionRound, idx}
+									<div id={`${message.id}-questions-${idx}`}>
+										<QuestionPanel round={questionRound} readonly />
 									</div>
 								{/each}
 							</div>

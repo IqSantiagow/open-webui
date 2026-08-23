@@ -39,6 +39,10 @@
 			label: $i18n.t('Notifications'),
 			description: $i18n.t('Send notifications to configured webhook targets')
 		},
+		questions: {
+			label: $i18n.t('User Questions'),
+			description: $i18n.t('Ask the user clarifying questions with selectable options')
+		},
 		web_search: {
 			label: $i18n.t('Web Search'),
 			description: $i18n.t('Search the web and fetch URLs')

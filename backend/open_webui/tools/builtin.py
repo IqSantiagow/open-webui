@@ -4369,3 +4369,236 @@ async def delete_calendar_event(
     except Exception as e:
         log.exception(f'delete_calendar_event error: {e}')
         return json.dumps({'error': str(e)})
+
+
+# =============================================================================
+# USER INTERACTION TOOLS
+# =============================================================================
+
+
+MAX_QUESTIONS_PER_CALL = 3
+MIN_OPTIONS_PER_QUESTION = 2
+MAX_OPTIONS_PER_QUESTION = 4
+MAX_QUESTION_HEADER_LENGTH = 16
+
+
+class AskQuestionOption(BaseModel):
+    label: str = Field(..., description='Short answer label shown on the option button.')
+    description: str = Field('', description='Optional one-line explanation of what choosing this option means.')
+
+
+class AskQuestionItem(BaseModel):
+    id: str = Field(..., description='Stable identifier of the question, used to match it with the answer.')
+    header: str = Field('', description=f'Very short chip label, max {MAX_QUESTION_HEADER_LENGTH} characters.')
+    question: str = Field(..., description='The full question shown to the user.')
+    options: list[AskQuestionOption] = Field(
+        default_factory=list,
+        description=(
+            f'Between {MIN_OPTIONS_PER_QUESTION} and {MAX_OPTIONS_PER_QUESTION} selectable options, '
+            'or an empty list for a free-text only question.'
+        ),
+    )
+    allow_free_text: bool = Field(
+        True,
+        description='Whether the user may type a custom answer instead of picking one of the options.',
+    )
+
+
+def _normalize_ask_question_items(questions) -> tuple[list[dict], Optional[str]]:
+    """Validate the questions requested by the model and convert them into plain dictionaries.
+
+    Returns a tuple of (normalized questions, error message). The error message is None
+    when every question passed validation; otherwise the caller must abort without
+    touching the user interface.
+    """
+    if not questions:
+        return [], 'At least one question is required.'
+
+    if len(questions) > MAX_QUESTIONS_PER_CALL:
+        return [], f'At most {MAX_QUESTIONS_PER_CALL} questions can be asked in a single call.'
+
+    normalized_questions = []
+    used_ids = set()
+
+    for index, question in enumerate(questions):
+        if hasattr(question, 'model_dump'):
+            item = question.model_dump()
+        elif isinstance(question, dict):
+            item = dict(question)
+        else:
+            item = dict(question or {})
+
+        question_id = str(item.get('id', '') or '').strip() or f'question_{index + 1}'
+        if question_id in used_ids:
+            return [], f'Duplicate question id: {question_id}.'
+        used_ids.add(question_id)
+
+        question_text = str(item.get('question', '') or '').strip()
+        if not question_text:
+            return [], f'Question "{question_id}" has an empty question text.'
+
+        header = str(item.get('header', '') or '').strip()[:MAX_QUESTION_HEADER_LENGTH]
+
+        normalized_options = []
+        for option in item.get('options') or []:
+            if hasattr(option, 'model_dump'):
+                option = option.model_dump()
+            elif not isinstance(option, dict):
+                option = {'label': str(option)}
+
+            label = str(option.get('label', '') or '').strip()
+            if not label:
+                continue
+
+            normalized_options.append(
+                {
+                    'label': label,
+                    'description': str(option.get('description', '') or '').strip(),
+                }
+            )
+
+        option_count = len(normalized_options)
+        if option_count and not (MIN_OPTIONS_PER_QUESTION <= option_count <= MAX_OPTIONS_PER_QUESTION):
+            return [], (
+                f'Question "{question_id}" must have between {MIN_OPTIONS_PER_QUESTION} and '
+                f'{MAX_OPTIONS_PER_QUESTION} options, or no options at all.'
+            )
+
+        # A question without options can only be answered with free text.
+        allow_free_text = bool(item.get('allow_free_text', True)) or not normalized_options
+
+        normalized_questions.append(
+            {
+                'id': question_id,
+                'header': header,
+                'question': question_text,
+                'options': normalized_options,
+                'allow_free_text': allow_free_text,
+            }
+        )
+
+    return normalized_questions, None
+
+
+def _normalize_ask_question_response(response, questions: list[dict]) -> dict:
+    """Convert the raw acknowledgement coming back from the browser into a stable result.
+
+    The event caller returns either the payload produced by the question panel or an
+    error dictionary when the browser tab is gone. Both cases are mapped to the same
+    shape so the model always receives a predictable answer.
+    """
+    if not isinstance(response, dict):
+        return {'cancelled': True, 'reason': 'disconnected', 'answers': []}
+
+    if response.get('error'):
+        error_text = str(response.get('error')).lower()
+        reason = 'timeout' if 'timed out' in error_text else 'disconnected'
+        return {'cancelled': True, 'reason': reason, 'answers': []}
+
+    questions_by_id = {question['id']: question for question in questions}
+    answers = []
+
+    for raw_answer in response.get('answers') or []:
+        if not isinstance(raw_answer, dict):
+            continue
+
+        question_id = str(raw_answer.get('id', '') or '').strip()
+        question = questions_by_id.get(question_id)
+        if question is None:
+            continue
+
+        answer_text = str(raw_answer.get('answer', '') or '').strip()
+        if not answer_text:
+            continue
+
+        option_index = raw_answer.get('option_index')
+        if not isinstance(option_index, int) or option_index < 0:
+            option_index = None
+
+        answers.append(
+            {
+                'id': question_id,
+                'question': question['question'],
+                'answer': answer_text,
+                'was_custom': bool(raw_answer.get('was_custom', False)),
+                'option_index': option_index,
+            }
+        )
+
+    cancelled = bool(response.get('cancelled')) or len(answers) < len(questions)
+    reason = str(response.get('reason', '') or '').strip() or ('skipped' if cancelled else '')
+
+    return {
+        'cancelled': cancelled,
+        'reason': reason if cancelled else '',
+        'answers': answers,
+    }
+
+
+async def ask_question(
+    questions: list[AskQuestionItem],
+    __event_emitter__: callable = None,
+    __event_call__: callable = None,
+) -> str:
+    """
+    Ask the user up to three clarifying questions with selectable options and wait for the answers.
+
+    Use this only when the request is genuinely ambiguous and the answer would change what you do:
+    missing preferences, mutually exclusive approaches, or a decision that cannot be derived from
+    the conversation. Do not use it for questions you can answer yourself, and do not use it to
+    confirm work you were already asked to do.
+
+    :param questions: List of 1-3 questions. Each item: id (string, required), header (very short chip label), question (string, required), options (2-4 items with label and optional description, or empty for a free-text answer), allow_free_text (boolean, default true).
+    :return: JSON with the answers, or with cancelled set to true when the user skipped the question or did not answer in time
+    """
+    from uuid import uuid4
+
+    normalized_questions, validation_error = _normalize_ask_question_items(questions)
+    if validation_error:
+        return json.dumps({'error': validation_error}, ensure_ascii=False)
+
+    if __event_call__ is None:
+        return json.dumps(
+            {'error': 'Interactive session is not available; continue with your best assumption.'},
+            ensure_ascii=False,
+        )
+
+    round_id = str(uuid4())
+
+    try:
+        response = await __event_call__(
+            {
+                'type': 'question',
+                'data': {
+                    'id': round_id,
+                    'questions': normalized_questions,
+                },
+            }
+        )
+    except Exception as e:
+        log.exception(f'ask_question error: {e}')
+        return json.dumps({'error': str(e)}, ensure_ascii=False)
+
+    result = _normalize_ask_question_response(response, normalized_questions)
+
+    # Persist the whole round on the assistant message so the exchange stays visible
+    # in the chat history after a reload.
+    if __event_emitter__:
+        try:
+            await __event_emitter__(
+                {
+                    'type': 'chat:message:questions',
+                    'data': {
+                        'id': round_id,
+                        'questions': normalized_questions,
+                        'answers': result['answers'],
+                        'cancelled': result['cancelled'],
+                        'reason': result['reason'],
+                        'answered_at': int(time.time()),
+                    },
+                }
+            )
+        except Exception as e:
+            log.exception(f'ask_question emit error: {e}')
+
+    return json.dumps(result, ensure_ascii=False)

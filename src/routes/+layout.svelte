@@ -35,7 +35,8 @@
 		showFileNavPath,
 		showFileNavDir,
 		pyodideWorker,
-		desktopEvent
+		desktopEvent,
+		pendingQuestions
 	} from '$lib/stores';
 	import { refreshChatList } from '$lib/stores/chatList';
 	import { getFileContentById } from '$lib/apis/files';
@@ -253,6 +254,10 @@
 			socketConnected.set(false);
 			disconnectReason = reason;
 			disconnectWarningShown = false;
+
+			// Question acknowledgements belong to the dropped connection, so the
+			// pending panels can no longer answer the backend.
+			pendingQuestions.set([]);
 
 			// Delay visible warnings while mobile browsers resume suspended tabs.
 			if (isLikelyResumeDisconnect(reason)) {
@@ -492,6 +497,83 @@
 		}
 	};
 
+	const notifyQuestionHandler = (chatId, questionText) => {
+		if (($settings?.notificationSound ?? true) && !$playingNotificationSound && $isLastActiveTab) {
+			playingNotificationSound.set(true);
+
+			const audio = new Audio(`/audio/notification.mp3`);
+			audio.play().finally(() => {
+				// Ensure the global state is reset after the sound finishes
+				playingNotificationSound.set(false);
+			});
+		}
+
+		if ($isLastActiveTab && ($settings?.notificationEnabled ?? false)) {
+			if ('Notification' in window && Notification.permission === 'granted') {
+				const notification = new Notification(`${$i18n.t('Assistant question')} / ${$WEBUI_NAME}`, {
+					body: questionText,
+					icon: `${WEBUI_BASE_URL}/static/favicon.png`,
+					tag: `question-${chatId}`,
+					requireInteraction: true
+				});
+
+				notification.onclick = () => {
+					window.focus();
+					goto(`/c/${chatId}`);
+				};
+			}
+		}
+	};
+
+	const questionEventHandler = (event, data, cb) => {
+		const questions = data?.questions ?? [];
+
+		if (questions.length === 0) {
+			cb?.({ cancelled: true, reason: 'skipped', answers: [] });
+			return;
+		}
+
+		const entryId = data?.id ?? `${event.chat_id}-${event.message_id}`;
+		let answered = false;
+
+		pendingQuestions.update((entries) => [
+			...entries.filter((entry) => entry.id !== entryId),
+			{
+				id: entryId,
+				chatId: event.chat_id,
+				messageId: event.message_id,
+				questions: questions,
+				respond: (result) => {
+					// The backend waits on a single acknowledgement, so answer only once.
+					if (answered) {
+						return;
+					}
+					answered = true;
+
+					pendingQuestions.update((current) => current.filter((entry) => entry.id !== entryId));
+					cb?.(result);
+				}
+			}
+		]);
+
+		notifyQuestionHandler(event.chat_id, questions[0].question);
+
+		// The panel lives inside the chat, so point the user at it when they are elsewhere.
+		if (event.chat_id !== $chatId) {
+			toast.custom(NotificationToast, {
+				componentProps: {
+					onClick: () => {
+						goto(`/c/${event.chat_id}`);
+					},
+					title: $i18n.t('Assistant question'),
+					content: questions[0].question
+				},
+				duration: 30000,
+				unstyled: true
+			});
+		}
+	};
+
 	const chatEventHandler = async (event, cb) => {
 		const chat = $page.url.pathname.includes(`/c/${event.chat_id}`);
 
@@ -546,6 +628,13 @@
 					});
 				}
 			}
+			return;
+		}
+
+		// Assistant questions must ALWAYS be processed as well, even when the chat is
+		// not open, because the backend blocks until the panel sends an answer back.
+		if (type === 'question' && data) {
+			questionEventHandler(event, data, cb);
 			return;
 		}
 

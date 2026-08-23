@@ -150,6 +150,45 @@ export const desktopEvent: Writable<DesktopEvent | null> = writable(null);
 export const isLastActiveTab = writable(true);
 export const playingNotificationSound = writable(false);
 
+// Questions asked by the assistant through the `ask_question` builtin tool.
+// The backend blocks on a socket acknowledgement, so every entry keeps the
+// callback that has to be invoked exactly once by the question panel.
+export type PendingQuestionOption = {
+	label: string;
+	description?: string;
+};
+
+export type PendingQuestionItem = {
+	id: string;
+	header?: string;
+	question: string;
+	options?: PendingQuestionOption[];
+	allow_free_text?: boolean;
+};
+
+export type PendingQuestionAnswer = {
+	id: string;
+	answer: string;
+	was_custom: boolean;
+	option_index: number | null;
+};
+
+export type PendingQuestionResult = {
+	cancelled: boolean;
+	reason?: string;
+	answers: PendingQuestionAnswer[];
+};
+
+export type PendingQuestionEntry = {
+	id: string;
+	chatId: string;
+	messageId: string;
+	questions: PendingQuestionItem[];
+	respond: (result: PendingQuestionResult) => void;
+};
+
+export const pendingQuestions: Writable<PendingQuestionEntry[]> = writable([]);
+
 export type Model = OpenAIModel | OllamaModel;
 
 type BaseModel = {

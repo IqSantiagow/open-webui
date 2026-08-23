@@ -49,6 +49,7 @@ from open_webui.models.users import UserModel
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.tools.builtin import (
     add_memory,
+    ask_question,
     calculate_timestamp,
     create_automation,
     create_calendar_event,
@@ -783,6 +784,15 @@ async def get_builtin_tools(
         and await has_user_permission('webhooks')
     ):
         builtin_functions.append(notify)
+
+    # Interactive questions - only when a live browser session can answer them.
+    # Sub-agent runs (request.state.internal) have no interactive channel of their own.
+    if (
+        is_builtin_tool_enabled('questions')
+        and extra_params.get('__event_call__') is not None
+        and getattr(request.state, 'internal', False) is not True
+    ):
+        builtin_functions.append(ask_question)
 
     if getattr(request.state, 'internal', False) is True:
         from open_webui.utils.subagents import MUTATING_MEMORY_TOOLS
