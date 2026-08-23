@@ -107,6 +107,8 @@
 	import Expand from '../icons/Expand.svelte';
 	import QueuedMessageItem from './MessageInput/QueuedMessageItem.svelte';
 	import TaskList from './Messages/ResponseMessage/TaskList.svelte';
+	import QuestionPanel from './Messages/ResponseMessage/QuestionPanel.svelte';
+	import type { PendingQuestionEntry } from '$lib/stores';
 
 	const i18n = getContext('i18n');
 
@@ -168,6 +170,25 @@
 	export let onQueueDelete: (id: string) => void = () => {};
 
 	export let chatTasks = [];
+	export let chatQuestions: PendingQuestionEntry[] = [];
+
+	let questionPanelElement: QuestionPanel | undefined;
+
+	// While the assistant waits for an answer, the chat input answers the question
+	// panel instead of sending a regular message.
+	const questionSubmitHandler = (): boolean => {
+		if (chatQuestions.length === 0) {
+			return false;
+		}
+
+		const handled = questionPanelElement?.submitFromInput(prompt) ?? false;
+		if (handled) {
+			prompt = '';
+			chatInputElement?.setText('');
+		}
+
+		return handled;
+	};
 
 	let inputContent = null;
 
@@ -1468,6 +1489,10 @@
 					<form
 						class="w-full flex flex-col gap-1.5 {recording ? 'hidden' : ''}"
 						on:submit|preventDefault={() => {
+							if (questionSubmitHandler()) {
+								return;
+							}
+
 							// check if selectedModels support image input
 							dispatch('submit', prompt);
 						}}
@@ -1478,6 +1503,11 @@
 							class="hidden"
 							on:click={() => createMessagePair(prompt)}
 						/>
+
+						<!-- Assistant questions waiting for an answer -->
+						{#if chatQuestions.length > 0}
+							<QuestionPanel bind:this={questionPanelElement} entry={chatQuestions[0]} />
+						{/if}
 
 						<!-- Task list display -->
 						{#if isActive && chatTasks.length > 0}
@@ -1763,7 +1793,11 @@
 															navigator.maxTouchPoints > 0 ||
 															navigator.msMaxTouchPoints > 0
 														)}
-													placeholder={placeholder ? placeholder : $i18n.t('Send a Message')}
+													placeholder={chatQuestions.length > 0
+														? $i18n.t('Submit answers')
+														: placeholder
+															? placeholder
+															: $i18n.t('Send a Message')}
 													largeTextAsFile={($settings?.largeTextAsFile ?? false) && !shiftKey}
 													autocomplete={$config?.features?.enable_autocomplete_generation &&
 														($settings?.promptAutocomplete ?? false)}
@@ -1846,6 +1880,11 @@
 
 																if (enterPressed) {
 																	e.preventDefault();
+
+																	if (questionSubmitHandler()) {
+																		return;
+																	}
+
 																	if (prompt !== '' || files.length > 0) {
 																		dispatch('submit', prompt);
 																	}

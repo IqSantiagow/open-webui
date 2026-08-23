@@ -46,7 +46,8 @@
 		showFileNavPath,
 		showFileNavDir,
 		chatRequestQueues,
-		desktopEvent
+		desktopEvent,
+		pendingQuestions
 	} from '$lib/stores';
 	import { refreshChatList, refreshFolderChatLists } from '$lib/stores/chatList';
 
@@ -374,6 +375,9 @@
 	$: readOnly = chat != null && chat.user_id !== $user?.id;
 
 	let chatTasks = [];
+
+	// Questions asked by the assistant in this chat, still waiting for an answer.
+	$: chatQuestions = $pendingQuestions.filter((entry) => entry.chatId === $chatId);
 
 	let history = {
 		messages: {},
@@ -1004,6 +1008,9 @@
 					message.files = data.files;
 				} else if (type === 'chat:message:tasks') {
 					chatTasks = data.tasks;
+				} else if (type === 'chat:message:questions') {
+					// Each event carries a single answered round; keep the earlier ones.
+					message.questions = [...(message.questions ?? []), data];
 				} else if (type === 'chat:message:embeds' || type === 'embeds') {
 					message.embeds = data.embeds;
 
@@ -3982,6 +3989,7 @@
 										{onUpload}
 										messageQueue={$chatRequestQueues[$chatId] ?? []}
 										{chatTasks}
+										{chatQuestions}
 										onQueueSendNow={async (id) => {
 											const queue = $chatRequestQueues[$chatId] ?? [];
 											const item = queue.find((m) => m.id === id);
@@ -4101,6 +4109,7 @@
 										{onUpload}
 										messageQueue={$chatRequestQueues[$chatId] ?? []}
 										{chatTasks}
+										{chatQuestions}
 										onWebSearchToggle={handleWebSearchToggle}
 										on:chatVariables={() => {
 											showChatVariablesModal = true;

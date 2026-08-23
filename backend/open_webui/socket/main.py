@@ -1053,6 +1053,26 @@ async def get_event_emitter(request_info, update_db=True):
                     touch=False,
                 )
 
+            elif event_type == 'chat:message:questions':
+                message = await Chats.get_message_by_id_and_message_id(
+                    request_info['chat_id'],
+                    request_info['message_id'],
+                )
+
+                # Each event carries a single question round; rounds are appended
+                # so the whole exchange stays readable in the chat history.
+                questions = (message or {}).get('questions', [])
+                questions.append(event_data.get('data', {}))
+
+                await Chats.upsert_message_to_chat_by_id_and_message_id(
+                    request_info['chat_id'],
+                    request_info['message_id'],
+                    {
+                        'questions': questions,
+                    },
+                    touch=False,
+                )
+
             elif event_type == 'files':
                 message = await Chats.get_message_by_id_and_message_id(
                     request_info['chat_id'],
